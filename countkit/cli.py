@@ -69,7 +69,7 @@ def build_parser():
     c.add_argument("--max-area", type=int, default=20000, help="plate mode: largest colony in px")
     c.add_argument("--min-distance", type=int, default=None,
                    help="min px between centers when splitting touching objects "
-                        "(default: 3 plate, 5 cells)")
+                        "(default: 3 plate, 7 cells)")
     c.add_argument("--rim", type=float, default=0.90,
                    help="plate mode: fraction of plate radius to keep (default 0.90)")
     c.add_argument("--clump-factor", type=float, default=2.0,

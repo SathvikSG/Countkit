@@ -1,6 +1,6 @@
 # Results & Outputs
 
-This walks through every file CountKit writes: what's in it, how to read it, and what to look for. The numbers here come from the synthetic demo (`countkit demo -n 100 --seed 0`). Real dataset results will be added when they're run.
+This walks through every file CountKit writes: what's in it, how to read it, and what to look for. The numbers come from two runs: real nuclei images from DSB2018 (50 test images), and the synthetic demo (`countkit demo -n 100 --seed 0`). There are no real plate results yet.
 
 ---
 
@@ -22,7 +22,22 @@ This walks through every file CountKit writes: what's in it, how to read it, and
 
 ## Summary Statistics
 
-`countkit validate` writes a plain text summary to `validation_summary.txt`. These are the two from the demo, copied as written.
+`countkit validate` writes a plain text summary to `validation_summary.txt`. These are copied as written.
+
+**Real nuclei, DSB2018 test set, classic engine (50 images, 9 to 257 nuclei each):**
+
+```
+Images compared:          50
+Mean absolute error:      5.66 objects
+Mean absolute % error:    12.29%
+Median absolute % error:  10.66%
+Within ±5% of truth:      22.0% of images
+Within ±10% of truth:     48.0% of images
+Bias (pred - truth):      -2.74 objects (negative = undercounting)
+Pearson r:                0.9935
+```
+
+This is the number that matters for cells. The cell settings were tuned on the 447 DSB2018 training images, and this test set was run once after that.
 
 **Synthetic plates (100 images, 5 to 300 colonies each):**
 
@@ -41,16 +56,18 @@ Pearson r:                1.0000
 
 ```
 Images compared:          100
-Mean absolute error:      0.03 objects
-Mean absolute % error:    0.05%
+Mean absolute error:      0.18 objects
+Mean absolute % error:    0.39%
 Median absolute % error:  0.00%
-Within ±5% of truth:      100.0% of images
+Within ±5% of truth:      99.0% of images
 Within ±10% of truth:     100.0% of images
-Bias (pred - truth):      -0.03 objects (negative = undercounting)
-Pearson r:                1.0000
+Bias (pred - truth):      -0.18 objects (negative = undercounting)
+Pearson r:                0.9999
 ```
 
-Pearson r prints as 1.0000 because it's rounded to 4 decimals. It isn't exactly 1.
+The plate Pearson r prints as 1.0000 because it's rounded to 4 decimals. It isn't exactly 1.
+
+Compare the synthetic cells (0.39%) with the real ones (12.29%). That gap is why synthetic numbers don't count as validation.
 
 **Reminder:** synthetic images are a lot easier than real ones. These numbers show the code does what it's supposed to. They aren't a claim about accuracy on real plates or real cells.
 
@@ -63,6 +80,10 @@ Pearson r prints as 1.0000 because it's rounded to 4 decimals. It isn't exactly 
 **Files:** `overlays/<image>_overlay.png`, one for each input image
 
 ![Plate overlay close up](docs/images/plate_overlay_zoom.png)
+
+![DSB2018 examples](docs/images/dsb2018_examples.jpg)
+
+*Real DSB2018 nuclei. Top: typical image. Middle and bottom: the two worst misses.*
 
 ![Cells before and after](docs/images/cells_before_after.jpg)
 
@@ -89,6 +110,10 @@ Pearson r prints as 1.0000 because it's rounded to 4 decimals. It isn't exactly 
 ![Plate agreement](docs/images/plate_agreement.png)
 
 **What it shows:** each dot is one image. The x-axis is the true count and the y-axis is CountKit's count. The dashed line is perfect agreement.
+
+![DSB2018 agreement](docs/images/dsb2018_agreement.png)
+
+The real DSB2018 run is above. Most dots sit close to the line, but the crowded images (200+ nuclei) fall below it: dim nuclei get missed when bright ones set the threshold.
 
 **What to look for:**
 - Dots sitting on the line ✓

@@ -7,7 +7,7 @@ name = "countkit"
 version = "0.1.0"
 description = "Count bacterial colonies and cells in images. Get a CSV and overlay pictures you can check."
 readme = "README.md"
-license = { text = "MIT" }
+license = { text = "Apache-2.0" }
 authors = [{ name = "Sathvik Sai Guntha", email = "sathvik.guntha@gmail.com" }]
 requires-python = ">=3.10"
 dependencies = [

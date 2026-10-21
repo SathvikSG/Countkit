@@ -27,7 +27,7 @@ class CellSettings:
     diameter: float = 0.0        # px; 0 lets cellpose estimate it
     cellpose_model: str = "cyto3"
     min_area: int = 15
-    min_distance: int = 5
+    min_distance: int = 7
     dark_cells: bool = False     # classic engine: True for dark cells on a bright field
 
 
