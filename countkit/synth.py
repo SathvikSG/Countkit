@@ -39,8 +39,12 @@ def _place(rng, n, radius_range, center, max_r, touching_share):
     return placed
 
 
-def make_plate(n_colonies, seed=0, size=900):
-    """Return (BGR image, true count) for a fake agar plate."""
+def make_plate(n_colonies, seed=0, size=900, return_colonies=False):
+    """Return (BGR image, true count) for a fake agar plate.
+
+    With return_colonies=True, also return the (x, y, radius) of each colony,
+    which is what the detector training test uses as boxes.
+    """
     rng = np.random.default_rng(seed)
     img = np.full((size, size, 3), (45, 45, 50), np.uint8)          # bench
     c = (size / 2 + rng.uniform(-20, 20), size / 2 + rng.uniform(-20, 20))
@@ -63,6 +67,8 @@ def make_plate(n_colonies, seed=0, size=900):
     light = 1 + 0.12 * (xx / size - 0.5) + 0.08 * (yy / size - 0.5)
     img = img.astype(np.float32) * light[..., None] + rng.normal(0, 3, img.shape)
     img = cv2.GaussianBlur(np.clip(img, 0, 255).astype(np.uint8), (3, 3), 0)
+    if return_colonies:
+        return img, len(colonies), colonies
     return img, len(colonies)
 
 

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from . import __version__, pipeline, synth, validate
 from .cells import CellSettings
+from .detector import DetectorSettings
 from .plate import PlateSettings
 
 
@@ -20,7 +21,15 @@ def cmd_count(a):
             settings.min_area = a.min_area
         if a.min_distance is not None:
             settings.min_distance = a.min_distance
-    summaries = pipeline.run(a.input, a.out, a.mode, plate, cells, a.clump_factor)
+    detector = None
+    if a.mode == "plate" and a.engine == "detector":
+        detector = DetectorSettings(model=a.detector_model, confidence=a.confidence)
+    elif a.mode == "plate" and a.engine == "cellpose":
+        sys.exit("Plate mode engines are classic (default) and detector.")
+    elif a.mode == "cells" and a.engine == "detector":
+        sys.exit("The detector is for plates. Cells mode engines are auto, cellpose and classic.")
+    summaries = pipeline.run(a.input, a.out, a.mode, plate, cells, a.clump_factor,
+                             detector_settings=detector)
     total = sum(s["count"] for s in summaries)
     secs = sum(s["seconds"] for s in summaries) / len(summaries)
     print(f"\n{len(summaries)} images, {total} objects, {secs:.2f} s per image on average")
@@ -74,8 +83,13 @@ def build_parser():
                    help="plate mode: fraction of plate radius to keep (default 0.85)")
     c.add_argument("--clump-factor", type=float, default=2.0,
                    help="flag objects bigger than this x the median area")
-    c.add_argument("--engine", default="auto", choices=["auto", "cellpose", "classic"],
-                   help="cells mode engine")
+    c.add_argument("--engine", default="auto", choices=["auto", "cellpose", "classic", "detector"],
+                   help="plate mode: classic (default) or detector. "
+                        "cells mode: auto (default), cellpose or classic")
+    c.add_argument("--detector-model", default="models/plate_detector.pt",
+                   help="plate mode, detector engine: trained model file")
+    c.add_argument("--confidence", type=float, default=0.25,
+                   help="plate mode, detector engine: lowest box confidence to count (default 0.25)")
     c.add_argument("--diameter", type=float, default=0.0,
                    help="cells mode: typical cell diameter in px (0 = let cellpose guess)")
     c.add_argument("--model", default="cyto3", help="cellpose model name (cellpose 3.x)")

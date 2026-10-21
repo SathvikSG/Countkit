@@ -13,6 +13,7 @@ from pathlib import Path
 import cv2
 
 from .cells import CellSettings, count_cells
+from .detector import DetectorSettings, count_colonies_detector
 from .io import list_images, read_image
 from .measure import OBJECT_COLUMNS, SUMMARY_COLUMNS, measure_objects, summarize
 from .overlay import draw_overlay
@@ -22,13 +23,21 @@ LOW_COUNT = 3
 HIGH_CLUMP_SHARE = 0.2
 
 
-def process_image(path, mode, plate_settings=None, cell_settings=None, clump_factor=2.0):
-    """Count one image. Returns (summary_row, object_rows, overlay_image)."""
+def process_image(path, mode, plate_settings=None, cell_settings=None, clump_factor=2.0,
+                  detector_settings=None):
+    """Count one image. Returns (summary_row, object_rows, overlay_image).
+
+    In plate mode, passing detector_settings uses the trained detector
+    instead of the classic engine.
+    """
     path = Path(path)
     color, gray = read_image(path)
     start = time.perf_counter()
 
-    if mode == "plate":
+    if mode == "plate" and detector_settings is not None:
+        labels, info = count_colonies_detector(color, detector_settings)
+        engine, circle, rim = "detector", info["circle"], info["rim"]
+    elif mode == "plate":
         ps = plate_settings or PlateSettings()
         labels, info = count_colonies(gray, ps)
         engine, circle, rim = "classic", info["circle"], ps.rim_fraction
@@ -60,7 +69,7 @@ def _write_csv(path, columns, rows):
 
 
 def run(input_path, out_dir, mode, plate_settings=None, cell_settings=None,
-        clump_factor=2.0, progress=print):
+        clump_factor=2.0, progress=print, detector_settings=None):
     images = list_images(input_path)
     if not images:
         raise FileNotFoundError(f"No images found in {input_path}")
@@ -70,7 +79,7 @@ def run(input_path, out_dir, mode, plate_settings=None, cell_settings=None,
     summaries, all_objects = [], []
     for i, path in enumerate(images, start=1):
         summary, objects, overlay = process_image(
-            path, mode, plate_settings, cell_settings, clump_factor)
+            path, mode, plate_settings, cell_settings, clump_factor, detector_settings)
         cv2.imwrite(str(out_dir / "overlays" / f"{path.stem}_overlay.png"), overlay)
         summaries.append(summary)
         all_objects.extend(objects)

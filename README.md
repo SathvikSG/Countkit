@@ -56,6 +56,7 @@ Both jobs come down to the same three steps: **find the objects, count them, mea
 | Mode | Engine | Why |
 |------|--------|-----|
 | `plate` | Classic image processing (OpenCV + scikit-image) | Colonies are mostly round blobs on a flat background. Thresholding and a watershed run in under a second and need no GPU or model download. On real plates it's a ballpark count, not a final one (see [Results](#results)). |
+| `plate` | Trained detector (YOLO), **new, not yet measured on real plates** | A model trained on AGAR's hand-boxed colonies, so it can learn what the rules miss: printed text isn't a colony, two soft colonies touching are two. You train it yourself with one command (see [Train the plate detector](#7-train-the-plate-detector)). |
 | `cells` | [Cellpose](https://github.com/MouseLand/cellpose) (pretrained deep learning) | Cells come in every shape and touch each other constantly. Cellpose was trained on a large set of cell images and deals with that much better than thresholding. |
 | `cells` | Classic fallback | Threshold + watershed. Used when Cellpose isn't installed. Good enough for clean fluorescent nuclei. |
 
@@ -114,6 +115,16 @@ A number on its own isn't worth much. If a tool says "143 colonies" you have no 
 5. **Split touching colonies.** Distance transform + watershed (`countkit/split.py`). How close two centers can be before they're split follows the typical colony size on that plate, because colony size varies about 10x between plates.
 6. **Filter.** Drops specks smaller than `--min-area`, blobs bigger than `--max-area` (glare, smears, labels), and shapes that don't look like a colony: thin arcs from the dish wall, and most printed letters (not solid enough or too stretched out).
 7. **Check for crowding.** If colonies (or a lawn) cover most of the plate, it gets a `crowded_plate` flag, since single colonies can't be told apart anymore.
+
+### Part 2a (detector): Plate mode with a trained model (`countkit/detector.py`)
+
+1. **Find the plate and fix the scale.** Same plate search as the classic engine, then the photo is scaled so the plate is 800 px in radius.
+2. **Tile it.** The plate is cut into 640 x 640 tiles that overlap by 128 px. Colonies are tiny compared to a whole plate, so the model looks at tiles instead of the whole photo shrunk down.
+3. **Detect.** The YOLO model finds a box around each colony in each tile. Boxes are moved back to plate coordinates, and duplicates from overlapping tiles are merged.
+4. **Keep what's on the plate.** Boxes whose center is outside the plate are dropped.
+5. **Hand off.** Each box is drawn as a filled ellipse, so the CSVs, overlays and review page work exactly like the other engines. Areas from this engine are ellipse estimates.
+
+Training uses the same scaling and tiling (`scripts/train_plate_detector.py`), so the model sees colonies at the same size it was trained on.
 
 ### Part 2b: Cells mode (`countkit/cells.py`)
 
@@ -181,7 +192,8 @@ countkit/
 ├── countkit/
 │   ├── cli.py                       # count / validate / demo / review commands
 │   ├── io.py                        # Finding and loading images
-│   ├── plate.py                     # Colony engine
+│   ├── plate.py                     # Colony engine (classic)
+│   ├── detector.py                  # Colony engine (trained YOLO detector)
 │   ├── cells.py                     # Cellpose + classic cell engines
 │   ├── split.py                     # Watershed for touching objects
 │   ├── measure.py                   # Per-object stats, per-image summary, clump flag
@@ -194,6 +206,7 @@ countkit/
 │
 ├── scripts/
 │   ├── run_real_tests.sh            # Rerun every real-data test in one command
+│   ├── train_plate_detector.py      # Train the plate detector on AGAR and compare it to classic
 │   ├── truth_from_agar.py           # Build truth.csv from AGAR annotations
 │   ├── truth_from_bbbc005.py        # Build truth.csv from BBBC005 file names
 │   └── truth_from_masks.py          # Build truth.csv from instance masks (DSB2018, BBBC039)
@@ -304,7 +317,23 @@ Same 50 held-out test images as the classic engine below, 9 to 257 nuclei each, 
 
 **Also tried:** running Cellpose on the plates instead. It did no better on the tuning plates (33.7% median error, r = 0.31, and one plate with 5 colonies came out as 157), so plate mode stays classic.
 
-**What would actually fix it:** a detector trained on plates, like the ones in the AGAR paper. That's the next big step (see [Future Directions](#future-directions)).
+**What would actually fix it:** a detector trained on plates, like the ones in the AGAR paper. That's now built in as `--engine detector`, but it hasn't been trained and measured on AGAR yet (see [Train the plate detector](#7-train-the-plate-detector)).
+
+### Plate detector (trained YOLO): built, not yet measured on real plates
+
+The detector engine and its train-and-test script are done (see [Train the plate detector](#7-train-the-plate-detector)). It hasn't been trained on AGAR yet, so **there's no real accuracy number for it yet.**
+
+To check that the whole thing works, I made 16 synthetic plates saved in AGAR's format (2 folders of 8, one `.jpg` + `.json` with colony boxes each, plus one plate marked -1) and ran the script on them: 6 plates for training, 2 for validation, 6 held out, 15 epochs on a 4-core CPU (4 min 45 s in total).
+
+| Held-out synthetic plates (6) | Classic | Detector |
+|---|---|---|
+| Mean absolute % error | 1.68% | 0.71% |
+| Median absolute % error | 1.71% | 0.45% |
+| Bias | -1.83 | +0.67 |
+
+The first run of the detector came out at 8.95% with a bias of +9.17, because a colony sitting on the seam between two tiles was counted twice (cut off in one tile, whole in the next). That's fixed (boxes touching an inner tile edge are dropped, since the neighbouring tile sees the whole colony) and has a test. The numbers above are after the fix, with the same trained model.
+
+These are synthetic plates, so this shows the training and counting code works, not that the detector beats the classic engine on real plates. AGAR will answer that.
 
 ### Real plate photos (no hand counts)
 
@@ -362,6 +391,7 @@ All timings were measured on a MacBook Air (Apple M5). Cellpose used the GPU, ev
 
 ### Not measured yet
 
+- **The plate detector on real plates.** The code is done and tested end to end (it trains and counts). It hasn't been trained on AGAR yet, because AGAR can't be downloaded on the machine it was built on. Run step 7 under [Installation & Usage](#installation--usage) to get the real number
 - **The full AGAR set.** Only the 40 plate free demo was used. The full 18,000 plates need a sign-up at [agar.neurosys.com](https://agar.neurosys.com/). Once downloaded, `bash scripts/run_real_tests.sh path/to/AGAR` tests 200 random plates
 - **Cellpose on cells it has never seen.** See the caveat above
 - Manual counting time to compare against
@@ -383,6 +413,7 @@ python3 -m venv .venv && source .venv/bin/activate   # gives you python + pip (n
 pip install -e .                 # plate mode + classic cell engine
 pip install -e ".[cells]"        # adds Cellpose (pulls in PyTorch, large download)
 pip install -e ".[review]"       # adds the Streamlit review page
+pip install -e ".[detect]"       # adds YOLO (ultralytics) for the plate detector
 ```
 
 ### 2. Try it with no data
@@ -415,7 +446,9 @@ countkit count path/to/images --mode cells --diameter 30 --out results/cells
 | `--max-area` | 40000 | Your colonies are very large |
 | `--min-distance` | from colony size (plate), 7 (cells) | Touching colonies stay merged (lower) or single colonies get cut in half (raise) |
 | `--clump-factor` | 2.0 | Too many or too few clump flags |
-| `--engine` | auto | Force `cellpose` or `classic` |
+| `--engine` | auto | Cells: force `cellpose` or `classic`. Plates: `classic` (default) or `detector` |
+| `--detector-model` | models/plate_detector.pt | Plates, detector engine: which trained model to use |
+| `--confidence` | 0.25 | Plates, detector engine: raise it if it counts things that aren't colonies, lower it if it misses colonies |
 | `--dark-cells` | off | Classic engine, cells darker than background (brightfield) |
 
 The plate defaults were tuned on 20 AGAR plates and checked on synthetic plates and 8 more real photos. The cell defaults were tuned on the DSB2018 training images. Run a few of your own images, look at the overlays, and adjust.
@@ -476,6 +509,35 @@ pip install -e ".[dev]"
 pytest
 ```
 
+
+### 7. Train the plate detector
+
+You need the AGAR plates on your computer (the free demo is enough to start).
+
+```bash
+pip install -e ".[detect]"
+python scripts/train_plate_detector.py path/to/AGAR
+```
+
+That one command:
+
+1. Splits the plates by folder (bright, dark, vague, lower resolution). In each folder, a seeded shuffle picks 5 plates for training (1 of them to check progress during training) and holds out the rest. The split is saved to `results/plate_detector/split.csv`, and held-out plates are never trained on.
+2. Cuts the training plates into tiles with AGAR's hand-drawn colony boxes.
+3. Trains YOLOv8n for up to 100 epochs, starting from a model pretrained on everyday photos. It uses a GPU if there is one (Apple silicon or NVIDIA). How long it takes on the real plates hasn't been measured yet.
+4. Counts the held-out plates with **both** engines and prints them side by side. Both are scored on the same plates, so the comparison is fair. The full results are in `results/plate_detector/comparison.txt`.
+
+The model is saved to `models/plate_detector.pt`. After that:
+
+```bash
+countkit count path/to/plates --mode plate --engine detector --out results/plates
+```
+
+**Things to know:**
+
+- With the free demo, the detector learns from only 16 plates. That's few, so expect it to improve a lot with the full set. For the full 18,000 plates, use `--train-per-group 2000` or similar
+- This split isn't the same one used to tune the classic engine, so a few of the held-out plates here may be plates the classic engine was tuned on. If anything, that makes the classic engine look a bit better than it is
+- Options: `--epochs`, `--batch`, `--device mps` (Mac), `--seed`, `--base-model yolov8s.pt` (bigger model)
+
 ---
 
 ## Output Files
@@ -515,7 +577,7 @@ Column by column details are in [RESULTS.md](RESULTS.md).
 - The synthetic data is seeded, so `countkit demo -n 100 --seed 0` gives the same images and the same numbers every time
 - Settings live in two small dataclasses (`PlateSettings`, `CellSettings`) so it's clear what each run used
 - Manual corrections are stored separately and never overwrite the automatic counts
-- 21 tests cover plate finding, big photos, ring-shaped colonies, crowded plates, counting, splitting, output format, validation math, corrections, and the CLI
+- 28 tests cover plate finding, big photos, ring-shaped colonies, crowded plates, counting, splitting, the detector (tiling, seams, AGAR split and training labels), output format, validation math, corrections, and the CLI
 
 **Built and tested with:** Python 3.12.13, OpenCV 5.0.0, scikit-image 0.26.0, NumPy 2.5.4, SciPy 1.18.1, pandas 3.0.6, PyTorch 2.14.1, Cellpose 4.2.1.1
 
@@ -527,7 +589,9 @@ Column by column details are in [RESULTS.md](RESULTS.md).
 - [x] Run plate mode on real plate photos and fix what broke
 - [x] Validate plate mode against hand counts (AGAR demo, 39 plates)
 - [x] Run Cellpose on DSB2018 and compare it to the classic engine
-- [ ] Train a colony detector on the full AGAR set. The classic plate engine tops out around 30 to 50% error on real plates
+- [x] Build a trainable colony detector engine (`--engine detector`) and a one-command train + test script
+- [ ] Train it on AGAR and report the held-out numbers. The classic plate engine tops out around 30 to 50% error on real plates
+- [ ] Train it on the full AGAR set (18,000 plates)
 - [ ] Find and ignore printed text on the dish before counting
 - [ ] Local thresholding for fields with bright and dim nuclei mixed
 - [ ] Time manual counting vs. CountKit on the same plates
