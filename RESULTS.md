@@ -43,13 +43,13 @@ This is the number that matters for cells. The cell settings were tuned on the 4
 
 ```
 Images compared:          100
-Mean absolute error:      0.53 objects
-Mean absolute % error:    0.60%
-Median absolute % error:  0.00%
+Mean absolute error:      0.97 objects
+Mean absolute % error:    0.72%
+Median absolute % error:  0.37%
 Within ±5% of truth:      97.0% of images
-Within ±10% of truth:     98.0% of images
-Bias (pred - truth):      -0.49 objects (negative = undercounting)
-Pearson r:                1.0000
+Within ±10% of truth:     99.0% of images
+Bias (pred - truth):      -0.85 objects (negative = undercounting)
+Pearson r:                0.9999
 ```
 
 **Synthetic nuclei, classic engine (100 images, 5 to 100 nuclei each):**
@@ -65,9 +65,9 @@ Bias (pred - truth):      -0.18 objects (negative = undercounting)
 Pearson r:                0.9999
 ```
 
-The plate Pearson r prints as 1.0000 because it's rounded to 4 decimals. It isn't exactly 1.
-
 Compare the synthetic cells (0.39%) with the real ones (12.29%). That gap is why synthetic numbers don't count as validation.
+
+**Real plate photos (8 scans, no hand counts):** counts were 95, 53, 365, 367, 89 and 97 on the six normal plates, and 2205 and 343 on two plates that got the `crowded_plate` flag. There's no accuracy number without hand counts. Running these is how three bugs got found and fixed (big photos split into pieces, ring-shaped colonies split into pieces, no warning for overgrown plates). Details are in the README under Results.
 
 **Reminder:** synthetic images are a lot easier than real ones. These numbers show the code does what it's supposed to. They aren't a claim about accuracy on real plates or real cells.
 
@@ -78,6 +78,10 @@ Compare the synthetic cells (0.39%) with the real ones (12.29%). That gap is why
 ### 1. Overlays
 
 **Files:** `overlays/<image>_overlay.png`, one for each input image
+
+![Real plates](docs/images/real_plates.jpg)
+
+*Real plate scans (top of each pair) and their overlays (bottom).*
 
 ![Plate overlay close up](docs/images/plate_overlay_zoom.png)
 
@@ -101,6 +105,7 @@ Compare the synthetic cells (0.39%) with the real ones (12.29%). That gap is why
 - No outlines on things that aren't objects: bubbles, dust, the label, the rim ✓
 - Orange outlines. Each one may be 2+ objects counted as 1. Fix them in the review page
 - The blue circle sitting just inside the dish wall. If it's way off, the plate wasn't found properly (check for a `no_plate_found` flag)
+- A `crowded_plate` flag. The plate is too packed for single colonies to be told apart, so treat the number as "too many to count"
 
 ---
 
@@ -138,7 +143,7 @@ The real DSB2018 run is above. Most dots sit close to the line, but the crowded 
 - Narrow dashed lines = consistent
 - Error growing as counts go up (a funnel shape). Common for colony counting, since crowded plates have more touching colonies
 
-In the plate demo, the errors are 0, -1, -2 or -3, plus two images at +1. The negative ones are touching pairs that stayed merged.
+In the plate demo, 47 images are exact, 29 are off by -1, and the rest range from -7 to +2. The negative ones are touching colonies that stayed merged.
 
 ---
 
@@ -167,8 +172,8 @@ One row per image.
 
 | image | mode | engine | count | clumps | mean_area_px | median_area_px | seconds |
 |-------|------|--------|-------|--------|--------------|----------------|---------|
-| plate_001.png | plate | classic | 254 | 0 | 208.1 | 181.0 | 0.319 |
-| plate_002.png | plate | classic | 192 | 0 | 195.2 | 181.0 | 0.307 |
+| plate_001.png | plate | classic | 251 | 0 | 210.4 | 185.0 | 0.36 |
+| plate_002.png | plate | classic | 192 | 0 | 195.2 | 181.0 | 0.354 |
 | cells_001.png | cells | classic | 79 | 0 | 208.4 | 207.0 | 0.095 |
 
 ---
@@ -191,8 +196,8 @@ One row per counted object, across all images.
 
 | image | object_id | x | y | area_px | diameter_px | circularity | is_clump |
 |-------|-----------|---|---|---------|-------------|-------------|----------|
-| plate_001.png | 1 | 421.0 | 117.0 | 223 | 16.85 | 1.0 | False |
-| plate_001.png | 2 | 511.0 | 128.0 | 430 | 23.4 | 0.988 | False |
+| plate_001.png | 1 | 422.1 | 117.7 | 224 | 16.89 | 0.985 | False |
+| plate_001.png | 2 | 512.0 | 128.5 | 420 | 23.12 | 0.974 | False |
 
 Areas are in pixels. To get µm² or mm², multiply by your pixel size squared.
 
@@ -213,7 +218,7 @@ Areas are in pixels. To get µm² or mm², multiply by your pixel size squared.
 
 | image | predicted | true_count | error | pct_error |
 |-------|-----------|------------|-------|-----------|
-| plate_001.png | 254 | 256 | -2 | -0.78125 |
+| plate_001.png | 251 | 256 | -5 | -1.953125 |
 | plate_002.png | 192 | 193 | -1 | -0.5181347150259067 |
 
 ---

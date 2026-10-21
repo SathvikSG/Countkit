@@ -61,3 +61,43 @@ def test_unknown_engine_raises():
     img, _ = make_cells(5, seed=0)
     with pytest.raises(ValueError):
         count_cells(img, CellSettings(engine="nope"))
+
+
+def test_big_photo_is_scaled_and_mapped_back():
+    # A 3x upscaled plate should count the same as the original, at full size.
+    img, truth = make_plate(80, seed=11)
+    big = cv2.resize(img, None, fx=3, fy=3, interpolation=cv2.INTER_LINEAR)
+    labels, info = count_colonies(gray(big))
+    assert labels.shape == big.shape[:2]
+    assert abs(labels.max() - truth) <= max(2, 0.05 * truth)
+    assert info["circle"][2] > 1000  # circle reported in original pixels
+
+
+def test_ring_colonies_count_once():
+    # Colonies with a pale edge and a center the same color as the agar.
+    img, _ = make_plate(0, seed=12)
+    rng = np.random.default_rng(0)
+    centers = [(300 + 90 * (i % 4), 300 + 90 * (i // 4)) for i in range(12)]
+    agar = img[450, 450].tolist()
+    for x, y in centers:
+        r = int(rng.integers(14, 20))
+        cv2.circle(img, (x, y), r, (230, 235, 240), -1, cv2.LINE_AA)
+        cv2.circle(img, (x, y), r // 2, agar, -1, cv2.LINE_AA)
+    labels, _ = count_colonies(gray(img))
+    assert labels.max() == len(centers)
+
+
+def test_crowded_plate_is_flagged():
+    img, _ = make_plate(0, seed=13)
+    for y in range(120, 780, 14):
+        for x in range(120, 780, 14):
+            if np.hypot(x - 450, y - 450) < 330:
+                cv2.circle(img, (x, y), 5, (230, 235, 240), -1)
+    _, info = count_colonies(gray(img))
+    assert "crowded_plate" in info["flags"]
+
+
+def test_normal_plate_not_flagged_crowded():
+    img, _ = make_plate(250, seed=14)
+    _, info = count_colonies(gray(img))
+    assert "crowded_plate" not in info["flags"]
