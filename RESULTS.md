@@ -1,6 +1,6 @@
 # Results & Outputs
 
-This walks through every file CountKit writes: what's in it, how to read it, and what to look for. The numbers come from two runs: real nuclei images from DSB2018 (50 test images), and the synthetic demo (`countkit demo -n 100 --seed 0`). There are no real plate results yet.
+This walks through every file CountKit writes: what's in it, how to read it, and what to look for. The numbers come from three sets: real nuclei images from DSB2018 (50 test images), real hand-counted plates from the AGAR demo (19 held-out plates), and the synthetic demo (`countkit demo -n 100 --seed 0`).
 
 ---
 
@@ -24,7 +24,22 @@ This walks through every file CountKit writes: what's in it, how to read it, and
 
 `countkit validate` writes a plain text summary to `validation_summary.txt`. These are copied as written.
 
-**Real nuclei, DSB2018 test set, classic engine (50 images, 9 to 257 nuclei each):**
+**Real nuclei, DSB2018 test set, Cellpose engine (50 images, 9 to 257 nuclei each):**
+
+```
+Images compared:          50
+Mean absolute error:      1.70 objects
+Mean absolute % error:    4.67%
+Median absolute % error:  3.03%
+Within ±5% of truth:      66.0% of images
+Within ±10% of truth:     88.0% of images
+Bias (pred - truth):      -0.66 objects (negative = undercounting)
+Pearson r:                0.9989
+```
+
+Cellpose 4.2 (Cellpose-SAM) with default settings, nothing tuned. Its training data may include DSB2018, so this could be a bit better than on brand new images.
+
+**Real nuclei, DSB2018 test set, classic engine (same 50 images):**
 
 ```
 Images compared:          50
@@ -37,19 +52,34 @@ Bias (pred - truth):      -2.74 objects (negative = undercounting)
 Pearson r:                0.9935
 ```
 
-This is the number that matters for cells. The cell settings were tuned on the 447 DSB2018 training images, and this test set was run once after that.
+The classic engine's settings were tuned on the 447 DSB2018 training images, and this test set was run once after that.
+
+**Real plates, AGAR demo, held-out set (19 plates, 3 to 298 colonies each):**
+
+```
+Images compared:          19
+Mean absolute error:      19.79 objects
+Mean absolute % error:    116.62%
+Median absolute % error:  51.22%
+Within ±5% of truth:      10.5% of images
+Within ±10% of truth:     21.1% of images
+Bias (pred - truth):      -5.47 objects (negative = undercounting)
+Pearson r:                0.9371
+```
+
+This is the number that matters for plates, and it's not great. Plate mode gives a ballpark on real plates, not a final count. The settings were tuned on 20 other AGAR plates. The big mean comes from plates with only 3 to 10 colonies, where printed text on the dish adds 10 or more false hits. The README has the full story, including an earlier run on the same 19 plates (31.21% median).
 
 **Synthetic plates (100 images, 5 to 300 colonies each):**
 
 ```
 Images compared:          100
-Mean absolute error:      0.97 objects
-Mean absolute % error:    0.72%
-Median absolute % error:  0.37%
-Within ±5% of truth:      97.0% of images
-Within ±10% of truth:     99.0% of images
-Bias (pred - truth):      -0.85 objects (negative = undercounting)
-Pearson r:                0.9999
+Mean absolute error:      4.45 objects
+Mean absolute % error:    2.83%
+Median absolute % error:  2.53%
+Within ±5% of truth:      92.0% of images
+Within ±10% of truth:     98.0% of images
+Bias (pred - truth):      -4.45 objects (negative = undercounting)
+Pearson r:                0.9997
 ```
 
 **Synthetic nuclei, classic engine (100 images, 5 to 100 nuclei each):**
@@ -65,9 +95,9 @@ Bias (pred - truth):      -0.18 objects (negative = undercounting)
 Pearson r:                0.9999
 ```
 
-Compare the synthetic cells (0.39%) with the real ones (12.29%). That gap is why synthetic numbers don't count as validation.
+Compare the synthetic cells (0.39%) with the real ones (12.29%), or the synthetic plates (2.83%) with the real ones (51.22%). That gap is why synthetic numbers don't count as validation.
 
-**Real plate photos (8 scans, no hand counts):** counts were 95, 53, 365, 367, 89 and 97 on the six normal plates, and 2205 and 343 on two plates that got the `crowded_plate` flag. There's no accuracy number without hand counts. Running these is how three bugs got found and fixed (big photos split into pieces, ring-shaped colonies split into pieces, no warning for overgrown plates). Details are in the README under Results.
+**Real plate photos (8 scans, no hand counts):** counts are 89, 47, 323, 310, 77 and 78 on the six normal plates, and 911 and 205 on two plates that got the `crowded_plate` flag. Colonies right at the edge are skipped by the default rim (0.85); `--rim 0.9` counts them on clean plates like these. There's no accuracy number without hand counts. Running these is how three bugs got found and fixed (big photos split into pieces, ring-shaped colonies split into pieces, no warning for overgrown plates). Details are in the README under Results.
 
 **Reminder:** synthetic images are a lot easier than real ones. These numbers show the code does what it's supposed to. They aren't a claim about accuracy on real plates or real cells.
 
@@ -143,7 +173,7 @@ The real DSB2018 run is above. Most dots sit close to the line, but the crowded 
 - Narrow dashed lines = consistent
 - Error growing as counts go up (a funnel shape). Common for colony counting, since crowded plates have more touching colonies
 
-In the plate demo, 47 images are exact, 29 are off by -1, and the rest range from -7 to +2. The negative ones are touching colonies that stayed merged.
+In the plate demo, 13 images are exact, 24 are off by 1 or 2, and the rest range from -3 to -13. None are over. The misses are touching colonies that stayed merged.
 
 ---
 
@@ -172,9 +202,9 @@ One row per image.
 
 | image | mode | engine | count | clumps | mean_area_px | median_area_px | seconds |
 |-------|------|--------|-------|--------|--------------|----------------|---------|
-| plate_001.png | plate | classic | 251 | 0 | 210.4 | 185.0 | 0.36 |
-| plate_002.png | plate | classic | 192 | 0 | 195.2 | 181.0 | 0.354 |
-| cells_001.png | cells | classic | 79 | 0 | 208.4 | 207.0 | 0.095 |
+| plate_001.png | plate | classic | 247 | 0 | 215.0 | 192.0 | 0.243 |
+| plate_002.png | plate | classic | 188 | 0 | 199.2 | 180.5 | 0.204 |
+| cells_001.png | cells | classic | 79 | 0 | 208.4 | 207.0 | 0.038 |
 
 ---
 
@@ -196,8 +226,8 @@ One row per counted object, across all images.
 
 | image | object_id | x | y | area_px | diameter_px | circularity | is_clump |
 |-------|-----------|---|---|---------|-------------|-------------|----------|
-| plate_001.png | 1 | 422.1 | 117.7 | 224 | 16.89 | 0.985 | False |
-| plate_001.png | 2 | 512.0 | 128.5 | 420 | 23.12 | 0.974 | False |
+| plate_001.png | 1 | 422.0 | 117.7 | 228 | 17.04 | 1.0 | False |
+| plate_001.png | 2 | 512.0 | 128.5 | 421 | 23.15 | 0.977 | False |
 
 Areas are in pixels. To get µm² or mm², multiply by your pixel size squared.
 
@@ -218,8 +248,8 @@ Areas are in pixels. To get µm² or mm², multiply by your pixel size squared.
 
 | image | predicted | true_count | error | pct_error |
 |-------|-----------|------------|-------|-----------|
-| plate_001.png | 251 | 256 | -5 | -1.953125 |
-| plate_002.png | 192 | 193 | -1 | -0.5181347150259067 |
+| plate_001.png | 247 | 256 | -9 | -3.515625 |
+| plate_002.png | 188 | 193 | -5 | -2.5906735751295336 |
 
 ---
 

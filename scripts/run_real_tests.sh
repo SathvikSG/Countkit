@@ -55,9 +55,9 @@ from pathlib import Path
 src, n = Path(sys.argv[1]).resolve(), int(sys.argv[2])
 t = pd.read_csv("data/agar_truth_all.csv")
 t = t[t["true_count"] > 0].sample(n=min(n, (t["true_count"] > 0).sum()), random_state=0)
-t.to_csv("data/agar_truth.csv", index=False)
-for name in t["image"]:
-    Path("data/agar_sample", name).symlink_to(src / name)
+t[["image", "true_count"]].to_csv("data/agar_truth.csv", index=False)
+for name, path in zip(t["image"], t["path"]):
+    Path("data/agar_sample", name).symlink_to(path)
 print(f"Sampled {len(t)} plates")
 PY
   countkit count data/agar_sample --mode plate --out results/agar

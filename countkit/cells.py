@@ -44,12 +44,15 @@ _model_cache = {}
 
 def _cellpose_model(name):
     if name not in _model_cache:
-        from cellpose import models
+        from cellpose import core, models
+        # Use the GPU when there is one (NVIDIA, or Apple silicon). Cellpose 4's
+        # model is big: about 80 s per image on a laptop CPU vs a few s on GPU.
+        gpu = core.use_gpu()
         # Cellpose 4 dropped model_type/the Cellpose class; 3.x has both.
         try:
-            _model_cache[name] = models.CellposeModel(gpu=False, model_type=name)
+            _model_cache[name] = models.CellposeModel(gpu=gpu, model_type=name)
         except TypeError:
-            _model_cache[name] = models.CellposeModel(gpu=False)
+            _model_cache[name] = models.CellposeModel(gpu=gpu)
     return _model_cache[name]
 
 
