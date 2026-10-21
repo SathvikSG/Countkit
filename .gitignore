@@ -1,0 +1,22 @@
+# Your images and generated output (reproducible from the commands)
+data/
+demo/
+results/
+countkit_results/
+validation/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+build/
+dist/
+
+# Cellpose model cache
+.cellpose/
+
+# macOS
+.DS_Store
