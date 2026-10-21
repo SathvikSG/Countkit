@@ -310,6 +310,7 @@ See [RESULTS.md](RESULTS.md) for every output file and how to read it.
 ```bash
 git clone https://github.com/SathvikSG/countkit.git
 cd countkit
+python3 -m venv .venv && source .venv/bin/activate   # gives you python + pip (needed on Macs)
 pip install -e .                 # plate mode + classic cell engine
 pip install -e ".[cells]"        # adds Cellpose (pulls in PyTorch, large download)
 pip install -e ".[review]"       # adds the Streamlit review page
