@@ -219,6 +219,7 @@ countkit/
 **How it was tested:** the one setting that mattered (`min_distance`, how close two nuclei can be before they get split) was tuned on the 447 **training** images only. The best value there was 7 px, so that's now the default for cells. Then the 50 **test** images were run once. Before tuning, the test score with the old default was 15.89% mean absolute % error.
 
 **Where it goes wrong:**
+
 - Crowded fields with both bright and dim nuclei. One threshold for the whole image picks up the bright ones and misses some dim ones. The two worst test images had 257 and 253 nuclei and were counted as 222 and 219.
 - Nuclei touching end to end sometimes get merged (orange outlines), and long nuclei sometimes get cut in two.
 - Errors go both ways: 19 images overcounted, 24 undercounted, 7 exact.

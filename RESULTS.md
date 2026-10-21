@@ -96,6 +96,7 @@ Compare the synthetic cells (0.39%) with the real ones (12.29%). That gap is why
 | Blue circle | Plate mode only: the counting area. Anything outside it is ignored |
 
 **What to look for:**
+
 - Every colony / cell has an outline ✓
 - No outlines on things that aren't objects: bubbles, dust, the label, the rim ✓
 - Orange outlines. Each one may be 2+ objects counted as 1. Fix them in the review page
@@ -116,6 +117,7 @@ Compare the synthetic cells (0.39%) with the real ones (12.29%). That gap is why
 The real DSB2018 run is above. Most dots sit close to the line, but the crowded images (200+ nuclei) fall below it: dim nuclei get missed when bright ones set the threshold.
 
 **What to look for:**
+
 - Dots sitting on the line ✓
 - Dots drifting below the line as counts go up. That means touching colonies aren't being split on crowded plates
 - Single dots far from the line. Open those overlays first
@@ -131,6 +133,7 @@ The real DSB2018 run is above. Most dots sit close to the line, but the crowded 
 **What it shows:** the error (predicted minus true) for each image, against the average of the two counts. The solid line is the average error (bias). The dashed lines are bias ± 1.96 standard deviations, which is where about 95% of images should land.
 
 **What to look for:**
+
 - Bias close to 0. Below 0 means it undercounts, above 0 means it overcounts
 - Narrow dashed lines = consistent
 - Error growing as counts go up (a funnel shape). Common for colony counting, since crowded plates have more touching colonies
