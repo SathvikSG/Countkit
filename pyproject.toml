@@ -9,7 +9,7 @@ description = "Count bacterial colonies and cells in images. Get a CSV and overl
 readme = "README.md"
 license = { text = "Apache-2.0" }
 authors = [{ name = "Sathvik Sai Guntha", email = "sathvik.guntha@gmail.com" }]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "numpy>=1.24",
     "scipy>=1.10",
@@ -21,7 +21,7 @@ dependencies = [
 
 [project.optional-dependencies]
 cells = ["cellpose>=3.0"]
-detect = ["ultralytics>=8.3"]
+detector = ["torch>=2.1", "torchvision>=0.16"]
 review = ["streamlit>=1.30", "streamlit-image-coordinates>=0.1.6", "pillow>=10"]
 dev = ["pytest>=7"]
 

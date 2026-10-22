@@ -6,14 +6,28 @@ import numpy as np
 import pandas as pd
 
 
-def compare(counts_csv, truth_csv, count_column="count"):
-    """Join predicted and true counts on image name. truth_csv needs columns image,true_count."""
+def compare(counts_csv, truth_csv, count_column=None, warn=print):
+    """Join predicted and true counts on image name. truth_csv needs columns image,true_count.
+
+    count_column defaults to corrected_count when the file has one (the
+    counts_corrected.csv the review page writes), otherwise count.
+    """
     pred = pd.read_csv(counts_csv)
     truth = pd.read_csv(truth_csv)
     missing = {"image", "true_count"} - set(truth.columns)
     if missing:
         raise ValueError(f"truth file is missing columns: {sorted(missing)}")
+    if count_column is None:
+        count_column = "corrected_count" if "corrected_count" in pred.columns else "count"
+        if count_column == "corrected_count" and warn:
+            warn("Using corrected_count (counts after your review fixes).")
     df = pred[["image", count_column]].rename(columns={count_column: "predicted"})
+    if warn:
+        for label, names in (("in the counts but not the truth file", set(pred["image"]) - set(truth["image"])),
+                             ("in the truth file but not the counts", set(truth["image"]) - set(pred["image"]))):
+            if names:
+                shown = ", ".join(sorted(names)[:5]) + (" ..." if len(names) > 5 else "")
+                warn(f"Warning: {len(names)} image(s) {label}, left out: {shown}")
     df = df.merge(truth[["image", "true_count"]], on="image", how="inner")
     if df.empty:
         raise ValueError("No image names matched between the two files.")
@@ -89,10 +103,10 @@ def agreement_plot(df, path, title="CountKit vs. ground truth"):
     plt.close(fig)
 
 
-def run(counts_csv, truth_csv, out_dir, title="CountKit vs. ground truth"):
+def run(counts_csv, truth_csv, out_dir, title="CountKit vs. ground truth", warn=print):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    df = compare(counts_csv, truth_csv)
+    df = compare(counts_csv, truth_csv, warn=warn)
     m = metrics(df)
     df.to_csv(out_dir / "validation_per_image.csv", index=False)
     (out_dir / "validation_summary.txt").write_text(format_metrics(m) + "\n")

@@ -1,6 +1,7 @@
 """Turn a label image into per-object rows and a per-image summary."""
 
 import numpy as np
+from skimage.segmentation import relabel_sequential as skimage_relabel
 from skimage.measure import regionprops
 
 OBJECT_COLUMNS = [
@@ -64,8 +65,7 @@ def summarize(objects, image_name, mode, engine, seconds, flags):
 
 
 def relabel_sequential(labels):
-    """Renumber labels 1..N so object IDs on the overlay have no gaps."""
-    out = np.zeros_like(labels, dtype=np.int32)
-    for new_id, old_id in enumerate(np.unique(labels[labels > 0]), start=1):
-        out[labels == old_id] = new_id
-    return out
+    """Renumber labels 1..N so object IDs on the overlay have no gaps.
+    Keeps the original order (lowest old label becomes 1)."""
+    out, _, _ = skimage_relabel(np.asarray(labels, dtype=np.int32))
+    return out.astype(np.int32)

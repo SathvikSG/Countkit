@@ -1,6 +1,6 @@
 # Results & Outputs
 
-This walks through every file CountKit writes: what's in it, how to read it, and what to look for. The numbers come from three sets: real nuclei images from DSB2018 (50 test images), real hand-counted plates from the AGAR demo (19 held-out plates), and the synthetic demo (`countkit demo -n 100 --seed 0`).
+This walks through every file CountKit writes: what's in it, how to read it, and what to look for. The numbers come from four sets: real nuclei images from DSB2018 (50 test images), real hand-boxed plates from ADBC (57 test plates) and the AGAR demo (19 held-out plates), and the synthetic demo (`countkit demo -n 100 --seed 0`).
 
 ---
 
@@ -54,7 +54,35 @@ Pearson r:                0.9935
 
 The classic engine's settings were tuned on the 447 DSB2018 training images, and this test set was run once after that.
 
-**Real plates, AGAR demo, held-out set (19 plates, 3 to 298 colonies each):**
+**Real plates, colony detector, AGAR held-out set (19 plates, 3 to 298 colonies each):**
+
+```
+Images compared:          19
+Mean absolute error:      4.68 objects
+Mean absolute % error:    6.56%
+Median absolute % error:  3.96%
+Within ±5% of truth:      63.2% of images
+Within ±10% of truth:     78.9% of images
+Bias (pred - truth):      -2.37 objects (negative = undercounting)
+Pearson r:                0.9944
+```
+
+**Real plates, colony detector, ADBC test set (57 plates, 2 to 620 colonies each):**
+
+```
+Images compared:          57
+Mean absolute error:      8.32 objects
+Mean absolute % error:    7.63%
+Median absolute % error:  2.63%
+Within ±5% of truth:      66.7% of images
+Within ±10% of truth:     78.9% of images
+Bias (pred - truth):      -5.26 objects (negative = undercounting)
+Pearson r:                0.9919
+```
+
+These are the numbers that matter for plates. The detector never trained on these plates, and its score cutoff was picked on separate validation plates.
+
+**Real plates, classic engine, AGAR held-out set (same 19 plates):**
 
 ```
 Images compared:          19
@@ -67,7 +95,7 @@ Bias (pred - truth):      -5.47 objects (negative = undercounting)
 Pearson r:                0.9371
 ```
 
-This is the number that matters for plates, and it's not great. Plate mode gives a ballpark on real plates, not a final count. The settings were tuned on 20 other AGAR plates. The big mean comes from plates with only 3 to 10 colonies, where printed text on the dish adds 10 or more false hits. The README has the full story, including an earlier run on the same 19 plates (31.21% median).
+The classic engine is a ballpark on real plates, not a final count. On the 57 ADBC test plates it's 24.62% median error. The settings were tuned on 20 other AGAR plates. The big mean comes from plates with only 3 to 10 colonies, where printed text on the dish adds 10 or more false hits. The README has the full story, including an earlier run on the same 19 plates (31.21% median).
 
 **Synthetic plates (100 images, 5 to 300 colonies each):**
 
@@ -187,7 +215,7 @@ One row per image.
 |--------|-------------|
 | `image` | File name |
 | `mode` | `plate` or `cells` |
-| `engine` | `classic` or `cellpose` |
+| `engine` | `detector`, `classic` or `cellpose` |
 | `count` | Number of objects |
 | `clumps` | How many of those were flagged as possible clumps |
 | `mean_area_px` | Average object area, in pixels |

@@ -21,7 +21,6 @@ dist/
 # macOS
 .DS_Store
 
-# YOLO base weights (downloaded automatically) and training runs
-yolov8*.pt
-yolo11*.pt
-runs/
+# Detector weights: published as a GitHub release, not committed (about 90 MB)
+*.pt
+countkit/weights/

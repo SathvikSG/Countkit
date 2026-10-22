@@ -101,3 +101,25 @@ def test_normal_plate_not_flagged_crowded():
     img, _ = make_plate(250, seed=14)
     _, info = count_colonies(gray(img))
     assert "crowded_plate" not in info["flags"]
+
+
+def test_same_plate_same_count_at_any_photo_size():
+    # Small photos are scaled up to the working size, big ones down.
+    img, truth = make_plate(60, seed=5)
+    full = count_colonies(gray(img))[0].max()
+    half = count_colonies(gray(cv2.resize(img, None, fx=0.5, fy=0.5,
+                                          interpolation=cv2.INTER_AREA)))[0].max()
+    assert abs(full - truth) <= 3
+    assert abs(half - full) <= 3
+
+
+def test_no_plate_found_counts_the_whole_image():
+    # Bright dots on a flat background, no dish: every dot should count,
+    # including the ones in the corners outside any inscribed circle.
+    img = np.full((600, 800), 90, np.uint8)
+    pts = [(40 + 90 * (i % 9), 40 + 130 * (i // 9)) for i in range(36)]
+    for x, y in pts:
+        cv2.circle(img, (x, y), 9, 200, -1)
+    labels, info = count_colonies(img)
+    assert "no_plate_found" in info["flags"]
+    assert labels.max() == len(pts)

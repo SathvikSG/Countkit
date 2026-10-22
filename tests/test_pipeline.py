@@ -5,6 +5,7 @@ import pytest
 
 from countkit import corrections, pipeline, synth, validate
 from countkit.cells import CellSettings
+from countkit.plate import PlateSettings
 from countkit.cli import main
 from countkit.measure import OBJECT_COLUMNS, SUMMARY_COLUMNS
 
@@ -14,7 +15,7 @@ def plate_run(tmp_path):
     images = tmp_path / "images"
     synth.write_dataset(images, "plate", 3, (10, 40), seed=7)
     out = tmp_path / "out"
-    pipeline.run(images, out, "plate", progress=None)
+    pipeline.run(images, out, "plate", PlateSettings(engine="classic"), progress=None)
     return images, out
 
 
@@ -82,8 +83,55 @@ def test_corrections(tmp_path, plate_run):
 def test_cli_count_and_validate(tmp_path, capsys):
     images = tmp_path / "imgs"
     synth.write_dataset(images, "plate", 2, (5, 20), seed=2)
-    main(["count", str(images), "--mode", "plate", "--out", str(tmp_path / "r")])
+    main(["count", str(images), "--mode", "plate", "--engine", "classic", "--out", str(tmp_path / "r")])
     main(["validate", "--counts", str(tmp_path / "r" / "counts.csv"),
           "--truth", str(images / "truth.csv"), "--out", str(tmp_path / "v")])
     assert (tmp_path / "v" / "agreement.png").exists()
     assert "Images compared:          2" in capsys.readouterr().out
+
+
+def test_bad_image_is_skipped_not_fatal(tmp_path):
+    images = tmp_path / "images"
+    synth.write_dataset(images, "plate", 2, (10, 20), seed=3)
+    (images / "broken.jpg").write_bytes(b"not really a jpeg")
+    out = tmp_path / "out"
+    summaries = pipeline.run(images, out, "plate", PlateSettings(engine="classic"), progress=None)
+    assert len(summaries) == 2
+    assert len(pd.read_csv(out / "counts.csv")) == 2
+    errors = pd.read_csv(out / "errors.csv")
+    assert errors["image"].tolist() == ["broken.jpg"]
+
+
+def test_empty_or_missing_folder_gives_a_plain_error(tmp_path, capsys):
+    (tmp_path / "empty").mkdir()
+    for folder in (tmp_path / "empty", tmp_path / "missing"):
+        with pytest.raises(SystemExit) as e:
+            main(["count", str(folder), "--mode", "plate", "--out", str(tmp_path / "r")])
+        assert str(e.value).startswith("Error:")
+
+
+def test_wrong_engine_name_is_not_reported_as_bad_images(tmp_path):
+    images = tmp_path / "images"
+    synth.write_dataset(images, "plate", 1, (10, 20), seed=3)
+    with pytest.raises(ValueError, match="plate engine"):
+        pipeline.run(images, tmp_path / "out", "plate", PlateSettings(engine="yolo"), progress=None)
+
+
+def test_validate_warns_about_unmatched_names(tmp_path):
+    counts = tmp_path / "counts.csv"
+    truth = tmp_path / "truth.csv"
+    pd.DataFrame({"image": ["a.png", "b.png"], "count": [5, 7]}).to_csv(counts, index=False)
+    pd.DataFrame({"image": ["a.png", "c.png"], "true_count": [5, 9]}).to_csv(truth, index=False)
+    notes = []
+    df = validate.compare(counts, truth, warn=notes.append)
+    assert len(df) == 1
+    assert any("b.png" in n for n in notes) and any("c.png" in n for n in notes)
+
+
+def test_validate_scores_reviewed_counts(tmp_path):
+    counts = tmp_path / "counts_corrected.csv"
+    truth = tmp_path / "truth.csv"
+    pd.DataFrame({"image": ["a.png"], "count": [5], "corrected_count": [9]}).to_csv(counts, index=False)
+    pd.DataFrame({"image": ["a.png"], "true_count": [9]}).to_csv(truth, index=False)
+    df = validate.compare(counts, truth, warn=None)
+    assert df.loc[0, "predicted"] == 9

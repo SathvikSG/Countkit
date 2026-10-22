@@ -1,26 +1,21 @@
-"""Colony counting with a trained object detector (YOLO).
+"""Colony detector: a Faster R-CNN trained on hand-boxed plate photos.
 
-The classic plate engine is hand-written rules, and on real AGAR plates it
-tops out around 30 to 50% error: printed text gets counted, soft colonies
-merge. A detector trained on hand-boxed colonies learns those cases instead.
+The classic plate engine thresholds the image, so anything that stands out
+from the agar (printed text, the dish wall, merged colonies) throws it off.
+This engine learned what a colony looks like from about 50,000 colonies boxed
+by hand (ADBC + AGAR, see README), so it skips text and splits neighbors far
+better. It needs PyTorch + torchvision (`pip install -e ".[detector]"`) and the
+trained weights (`countkit get-weights` downloads them once, about 90 MB).
 
-How it runs on one photo:
-  1. Find the plate and scale the photo so the plate radius is PLATE_RADIUS
-     px. Colonies then have about the same size in every photo, and the same
-     scale is used for training (scripts/train_plate_detector.py).
-  2. Cut the plate into overlapping TILE x TILE tiles. Colonies are tiny
-     compared to a whole plate, so the model looks at tiles, not the whole
-     photo shrunk down.
-  3. Run the model on every tile, put the boxes back in plate coordinates,
-     and drop duplicates where tiles overlap.
-  4. Keep boxes whose center is inside the plate.
-
-The rest of CountKit works on label images, so each box is drawn as a
-filled ellipse. Areas from this engine are therefore ellipse estimates.
-
-Needs: pip install -e ".[detect]"
+Training (scripts/train_detector.py) and counting both go through
+`prepare()`, so the model always sees photos the same way: cropped to the
+plate and scaled so the crop is `size` px across. The size and anchor sizes
+are saved in the weights file, so counting always matches training.
 """
 
+import hashlib
+import os
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -29,156 +24,174 @@ import numpy as np
 
 from .plate import find_plate
 
-PLATE_RADIUS = 800   # px; plates are scaled to this radius before tiling
-TILE = 640           # px; tile size, also the YOLO training image size
-OVERLAP = 128        # px; tiles overlap so colonies on a seam are seen whole
+SIZE = 1024             # px; default plate crop size (the weights file can override it)
+ANCHORS = (8, 16, 32, 64, 128)  # px; one anchor size per FPN level, at SIZE
+CROP_MARGIN = 1.04      # crop a little past the plate edge so rim colonies aren't cut
+DEFAULT_WEIGHTS = Path(__file__).parent / "weights" / "colony_detector.pt"
+CACHED_WEIGHTS = Path.home() / ".cache" / "countkit" / "colony_detector.pt"
+WEIGHTS_URL = "https://github.com/SathvikSG/Countkit/releases/download/detector-v1/colony_detector.pt"
+WEIGHTS_SHA256 = "768b266fc80f6f62c5cc9f73fb2954ee763ca0946b25ef9e3ddd4685d65714b1"
 
 
 @dataclass
 class DetectorSettings:
-    model: str = "models/plate_detector.pt"
-    confidence: float = 0.25     # drop boxes the model is less sure about
-    iou: float = 0.5             # boxes overlapping more than this are one colony
-    rim_fraction: float = 0.98   # keep box centers inside this fraction of the radius
-    device: str | None = None    # None = let ultralytics pick (GPU/MPS if there is one)
+    weights: str = ""            # path to weights; "" = COUNTKIT_DETECTOR or the bundled file
+    score_threshold: float = 0.0  # 0 = use the cutoff saved with the weights (picked on validation)
+    device: str = "auto"         # auto | cpu | mps | cuda
 
 
-_models = {}
+def available(weights=""):
+    try:
+        import torch  # noqa: F401
+        import torchvision  # noqa: F401
+    except ImportError:
+        return False
+    return _weights_path(weights) is not None
 
 
-def _load(path):
-    if path not in _models:
-        try:
-            from ultralytics import YOLO
-        except ImportError as e:
-            raise ImportError("The detector needs ultralytics. Run: pip install -e '.[detect]'") from e
-        if not Path(path).exists():
-            raise FileNotFoundError(
-                f"No detector model at {path}. Train one with scripts/train_plate_detector.py "
-                "or pass --model path/to/model.pt")
-        _models[path] = YOLO(path)
-    return _models[path]
+def _weights_path(path):
+    for p in (path, os.environ.get("COUNTKIT_DETECTOR", ""), str(DEFAULT_WEIGHTS),
+              str(CACHED_WEIGHTS)):
+        if p and Path(p).is_file():
+            return Path(p)
+    return None
 
 
-def plate_crop(color):
-    """Scale the photo so the plate has PLATE_RADIUS, and crop a square around it.
+def download_weights(url=WEIGHTS_URL, dest=CACHED_WEIGHTS, sha256=WEIGHTS_SHA256):
+    """Download the trained weights once and check the file is the one published."""
+    dest = Path(dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix(".part")
+    with urllib.request.urlopen(url) as r, open(tmp, "wb") as f:
+        while chunk := r.read(1 << 20):
+            f.write(chunk)
+    digest = hashlib.sha256(tmp.read_bytes()).hexdigest()
+    if sha256 and digest != sha256:
+        tmp.unlink()
+        raise ValueError(f"Downloaded weights don't match the published checksum ({digest})")
+    tmp.replace(dest)
+    return dest
 
-    Returns (crop, scale, (x0, y0), circle, flags). A pixel (u, v) in the crop
-    is ((u + x0) / scale, (v + y0) / scale) in the original photo.
+
+def prepare(color, size=SIZE):
+    """Crop a BGR photo to the plate and scale it to size x size.
+
+    Returns (rgb uint8 image, (x0, y0, scale)). A point (x, y) in the
+    prepared image is at (x0 + x / scale, y0 + y / scale) in the original.
     """
+    h, w = color.shape[:2]
     gray = cv2.cvtColor(color, cv2.COLOR_BGR2GRAY)
-    flags = []
     circle = find_plate(gray)
     if circle is None:
-        flags.append("no_plate_found")
-        h, w = gray.shape
-        circle = (w / 2, h / 2, min(h, w) / 2)
-    scale = PLATE_RADIUS / circle[2]
+        side = max(h, w)
+        x0, y0 = (w - side) / 2, (h - side) / 2
+    else:
+        cx, cy, r = circle
+        side = 2 * r * CROP_MARGIN
+        x0, y0 = cx - side / 2, cy - side / 2
+    scale = size / side
+    # One affine warp does the crop, the padding (if the crop runs off the
+    # photo) and the resize together.
+    m = np.array([[scale, 0, -x0 * scale], [0, scale, -y0 * scale]], dtype=np.float64)
     interp = cv2.INTER_AREA if scale < 1 else cv2.INTER_LINEAR
-    scaled = cv2.resize(color, None, fx=scale, fy=scale, interpolation=interp)
-    cx, cy = circle[0] * scale, circle[1] * scale
-    half = PLATE_RADIUS + 16
-    x0, y0 = int(round(cx - half)), int(round(cy - half))
-    size = 2 * half
-    # Pad with black where the square goes past the photo edge.
-    crop = np.zeros((size, size, 3), np.uint8)
-    sx0, sy0 = max(x0, 0), max(y0, 0)
-    sx1, sy1 = min(x0 + size, scaled.shape[1]), min(y0 + size, scaled.shape[0])
-    crop[sy0 - y0:sy1 - y0, sx0 - x0:sx1 - x0] = scaled[sy0:sy1, sx0:sx1]
-    return crop, scale, (x0, y0), circle, flags
+    out = cv2.warpAffine(color, m, (size, size), flags=interp,
+                         borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0))
+    return cv2.cvtColor(out, cv2.COLOR_BGR2RGB), (x0, y0, scale)
 
 
-def tile_origins(size, tile=TILE, overlap=OVERLAP):
-    """Top-left corners of tiles covering 0..size, last tile flush with the edge."""
-    if size <= tile:
-        return [0]
-    step = tile - overlap
-    starts = list(range(0, size - tile, step))
-    starts.append(size - tile)
-    return starts
+def build_model(num_classes=2, size=SIZE, anchors=ANCHORS):
+    """Faster R-CNN (ResNet-50 FPN v2) with anchors sized for colonies."""
+    from torchvision.models.detection import fasterrcnn_resnet50_fpn_v2
+    from torchvision.models.detection.anchor_utils import AnchorGenerator
+
+    # Colonies are about 8 to 120 px across after prepare(), smaller than
+    # the COCO default anchors (32 to 512).
+    model = fasterrcnn_resnet50_fpn_v2(
+        weights=None, weights_backbone=None, num_classes=num_classes,
+        min_size=size, max_size=size,
+        rpn_pre_nms_top_n_test=6000, rpn_post_nms_top_n_test=3000,
+        box_detections_per_img=2000, box_score_thresh=0.05,
+    )
+    # Same 3 anchors per location as the default, so the RPN head is unchanged.
+    model.rpn.anchor_generator = AnchorGenerator(
+        sizes=tuple((int(a),) for a in anchors), aspect_ratios=((0.5, 1.0, 2.0),) * 5)
+    return model
 
 
-def nms(boxes, scores, iou):
-    """Non-max suppression. boxes are (x0, y0, x1, y1). Returns kept indices."""
-    if len(boxes) == 0:
-        return []
-    xywh = [[float(b[0]), float(b[1]), float(b[2] - b[0]), float(b[3] - b[1])] for b in boxes]
-    keep = cv2.dnn.NMSBoxes(xywh, [float(s) for s in scores], 0.0, iou)
-    return sorted(int(i) for i in np.array(keep).ravel())
+def pick_device(name="auto"):
+    import torch
+    if name != "auto":
+        return torch.device(name)
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
 
 
-def detect_boxes(color, settings=None):
-    """Return (boxes in original pixels as (x0, y0, x1, y1), scores, circle, flags)."""
+_cache = {}
+
+
+def load(settings=None):
+    """Return (model, device, score_threshold, size), loading once per weights file."""
+    import torch
+
     s = settings or DetectorSettings()
-    model = _load(s.model)
-    crop, scale, (x0, y0), circle, flags = plate_crop(color)
+    path = _weights_path(s.weights)
+    if path is None:
+        raise FileNotFoundError(
+            "No colony detector weights found. Run `countkit get-weights`, "
+            "set COUNTKIT_DETECTOR, or pass --weights. See README.")
+    key = (str(path), s.device)
+    if key not in _cache:
+        ckpt = torch.load(path, map_location="cpu", weights_only=True)
+        size = int(ckpt.get("size", SIZE))
+        model = build_model(size=size, anchors=tuple(ckpt.get("anchors", ANCHORS)))
+        model.load_state_dict({k: v.float() for k, v in ckpt["model"].items()})
+        device = pick_device(s.device)
+        model.to(device).eval()
+        _cache[key] = (model, device, float(ckpt.get("score_threshold", 0.5)), size)
+    model, device, saved, size = _cache[key]
+    return model, device, s.score_threshold or saved, size
 
-    starts = tile_origins(crop.shape[0])
-    tiles, offsets = [], []
-    for ty in starts:
-        for tx in starts:
-            tiles.append(crop[ty:ty + TILE, tx:tx + TILE])
-            offsets.append((tx, ty))
 
-    # A colony on a tile seam shows up cut off in one tile and whole in its
-    # neighbour, and the two boxes overlap too little to merge. Tiles overlap
-    # by more than a colony is wide, so drop boxes touching an inner tile edge;
-    # the neighbouring tile has the whole colony.
-    size = crop.shape[0]
-    edge = 2
-    boxes, scores = [], []
-    for i in range(0, len(tiles), 16):
-        results = model.predict(tiles[i:i + 16], imgsz=TILE, conf=s.confidence, iou=s.iou,
-                                device=s.device, verbose=False)
-        for (tx, ty), r in zip(offsets[i:i + 16], results):
-            for b, c in zip(r.boxes.xyxy.cpu().numpy(), r.boxes.conf.cpu().numpy()):
-                if ((b[0] < edge and tx > 0) or (b[1] < edge and ty > 0)
-                        or (b[2] > TILE - edge and tx + TILE < size)
-                        or (b[3] > TILE - edge and ty + TILE < size)):
-                    continue
-                boxes.append(b + [tx, ty, tx, ty])
-                scores.append(float(c))
+def detect(color, settings=None):
+    """Return (boxes in original pixels as an Nx4 array x1,y1,x2,y2, scores)."""
+    import torch
 
-    keep = nms(boxes, scores, s.iou)
-    boxes = np.array([boxes[k] for k in keep]).reshape(-1, 4)
-    scores = np.array([scores[k] for k in keep])
-
-    # Keep colonies whose center is on the plate.
-    centre = PLATE_RADIUS + 16
-    cxs, cys = (boxes[:, 0] + boxes[:, 2]) / 2, (boxes[:, 1] + boxes[:, 3]) / 2
-    on_plate = np.hypot(cxs - centre, cys - centre) <= PLATE_RADIUS * s.rim_fraction
-    boxes, scores = boxes[on_plate], scores[on_plate]
-
-    boxes = (boxes + [x0, y0, x0, y0]) / scale
-    return boxes, scores, circle, flags
+    model, device, threshold, size = load(settings)
+    rgb, (x0, y0, scale) = prepare(color, size)
+    t = torch.from_numpy(rgb).permute(2, 0, 1).float().div(255).to(device)
+    with torch.no_grad():
+        out = model([t])[0]
+    keep = out["scores"] >= threshold
+    boxes = out["boxes"][keep].cpu().numpy().astype(np.float64)
+    scores = out["scores"][keep].cpu().numpy()
+    boxes = boxes / scale + np.array([x0, y0, x0, y0])
+    return boxes, scores
 
 
 def boxes_to_labels(boxes, shape):
-    """Draw each box as a filled ellipse with its own label (biggest first, so small ones stay visible)."""
-    labels = np.zeros(shape[:2], np.int32)
-    order = np.argsort(-(boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])) if len(boxes) else []
-    for n, i in enumerate(order, start=1):
-        x0, y0, x1, y1 = boxes[i]
-        centre = (int(round((x0 + x1) / 2)), int(round((y0 + y1) / 2)))
-        axes = (max(1, int(round((x1 - x0) / 2))), max(1, int(round((y1 - y0) / 2))))
-        cv2.ellipse(labels, centre, axes, 0, 0, 360, n, -1)
-    # A box drawn over completely by its neighbours would vanish from the
-    # count, so give any missing one a small dot at its center.
-    present = set(np.unique(labels))
-    for n, i in enumerate(order, start=1):
-        if n not in present:
-            x0, y0, x1, y1 = boxes[i]
-            cx, cy = int((x0 + x1) / 2), int((y0 + y1) / 2)
-            labels[max(cy - 1, 0):cy + 2, max(cx - 1, 0):cx + 2] = n
+    """Draw each box as a filled ellipse so the rest of CountKit (measure,
+    overlay, review) can treat detections like any other labeled object.
+    Big ones are drawn first so a small colony sitting on a big one stays visible."""
+    labels = np.zeros(shape[:2], dtype=np.int32)
+    areas = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
+    for i, j in enumerate(np.argsort(-areas), start=1):
+        x1, y1, x2, y2 = boxes[j]
+        center = (int(round((x1 + x2) / 2)), int(round((y1 + y2) / 2)))
+        axes = (max(1, int(round((x2 - x1) / 2 * 0.9))), max(1, int(round((y2 - y1) / 2 * 0.9))))
+        cv2.ellipse(labels, center, axes, 0, 0, 360, i, -1)
     return labels
 
 
 def count_colonies_detector(color, settings=None):
-    """Return (labels, info) like the classic engine. info also has the raw boxes."""
-    s = settings or DetectorSettings()
-    boxes, scores, circle, flags = detect_boxes(color, s)
+    """Return (labels, info) like plate.count_colonies, using the detector."""
+    boxes, scores = detect(color, settings)
     labels = boxes_to_labels(boxes, color.shape)
-    if len(boxes) == 0:
-        flags.append("empty")
-    return labels, {"circle": circle, "flags": flags, "boxes": boxes, "scores": scores,
-                    "rim": s.rim_fraction}
+    flags = []
+    gray = cv2.cvtColor(color, cv2.COLOR_BGR2GRAY)
+    circle = find_plate(gray)
+    if circle is None:
+        flags.append("no_plate_found")
+    return labels, {"circle": circle, "flags": flags, "scores": scores}

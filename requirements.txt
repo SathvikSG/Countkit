@@ -1,5 +1,6 @@
 # Python dependencies for CountKit
-# Easiest install: pip install -e ".[cells,review,dev]"  (from the repo root)
+# Easiest install: pip install -e ".[cells,detector,review,dev]"  (from the repo root)
+# Python 3.11 or newer (scikit-image 0.26 needs it)
 
 # ── Core (plate mode + classic cell engine) ────────────────────────────────────
 numpy>=1.24
@@ -11,6 +12,10 @@ matplotlib>=3.7
 
 # ── Cells mode with Cellpose (optional, pulls in PyTorch) ─────────────────────
 # cellpose>=3.0
+
+# ── Plate detector (optional, PyTorch; then run `countkit get-weights`) ────────
+# torch>=2.1
+# torchvision>=0.16
 
 # ── Review page (optional) ─────────────────────────────────────────────────────
 streamlit>=1.30

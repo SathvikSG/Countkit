@@ -1,11 +1,13 @@
 """Colony counting on agar plate photos. Classic image processing, no AI.
 
 Steps:
-  0. Find the plate (largest circle) and shrink big photos so the plate is
-     about 400 px across in radius. Phone and scanner photos are often
-     3000+ px wide, and all the size settings below assume this scale.
+  0. Find the plate (largest circle) and scale the photo so the plate is
+     400 px in radius (big photos shrink, small ones grow). All the size
+     settings below are at this scale, so the same plate gives the same
+     count whatever the photo size.
   1. Keep only the inner part of the plate, so the rim and anything written
-     on the edge don't get counted.
+     on the edge don't get counted. If no plate is found, the whole image
+     is used.
   2. Blur a little, then subtract the background so uneven lighting doesn't
      matter. The background filter is wide (60% of the plate radius) so big
      soft colonies stay whole instead of turning into rings.
@@ -36,6 +38,9 @@ WORKING_RADIUS = 400  # px; plates bigger than this get shrunk to it first
 class PlateSettings:
     # Sizes are in working pixels, i.e. after the plate is scaled to a
     # 400 px radius. Output areas are converted back to original pixels.
+    engine: str = "auto"         # auto | detector | classic (auto = detector if installed)
+    detector_weights: str = ""   # detector engine: weights file ("" = bundled / COUNTKIT_DETECTOR)
+    score_threshold: float = 0.0  # detector engine: 0 = cutoff saved with the weights
     rim_fraction: float = 0.85   # keep this fraction of the plate radius
     min_area: int = 30           # px; smaller = noise
     max_area: int = 40000        # px; bigger = glare/label/smear
@@ -98,11 +103,15 @@ def count_colonies(gray, settings=None):
         h, w = gray.shape
         circle = (w / 2, h / 2, min(h, w) / 2)
 
-    scale = min(1.0, WORKING_RADIUS / circle[2])
-    if scale < 1.0:
-        gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+    scale = WORKING_RADIUS / circle[2]
+    if scale != 1.0:
+        interp = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR
+        gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=interp)
     work_circle = (circle[0] * scale, circle[1] * scale, circle[2] * scale)
-    inside = plate_mask(gray.shape, work_circle, s.rim_fraction)
+    if "no_plate_found" in flags:
+        inside = np.ones(gray.shape, dtype=bool)
+    else:
+        inside = plate_mask(gray.shape, work_circle, s.rim_fraction)
 
     smooth = cv2.GaussianBlur(gray, (0, 0), s.blur_sigma) if s.blur_sigma else gray
     k = int(WORKING_RADIUS * s.background_fraction) | 1
@@ -145,13 +154,14 @@ def count_colonies(gray, settings=None):
         labels[np.isin(labels, too_big[too_big > 0])] = 0
         flags.append("large_blob_removed")
 
-    for r in regionprops(labels):
-        if (r.solidity < s.min_solidity or r.axis_minor_length < min_width
-                or r.eccentricity > s.max_eccentricity):
-            labels[labels == r.label] = 0
+    drop = [r.label for r in regionprops(labels)
+            if r.solidity < s.min_solidity or r.axis_minor_length < min_width
+            or r.eccentricity > s.max_eccentricity]
+    if drop:
+        labels[np.isin(labels, drop)] = 0
 
     labels = relabel_sequential(labels)
-    if scale < 1.0:
+    if scale != 1.0:
         labels = cv2.resize(labels, (full_shape[1], full_shape[0]),
                             interpolation=cv2.INTER_NEAREST)
     return labels, {"circle": circle, "flags": flags}

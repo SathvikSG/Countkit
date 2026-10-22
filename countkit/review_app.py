@@ -31,16 +31,21 @@ if "corrections" not in st.session_state:
 fixes = st.session_state.corrections
 
 names = counts["image"].tolist()
-if "idx" not in st.session_state:
-    st.session_state.idx = 0
+# Widgets keep their own state under a fixed key. Passing a new default or
+# index on every rerun makes Streamlit reset them, which dropped every other edit.
+if st.session_state.get("image") not in names:
+    st.session_state.image = names[0]
+
+
+def step(delta):
+    i = names.index(st.session_state.image) + delta
+    st.session_state.image = names[max(0, min(len(names) - 1, i))]
+
 
 nav = st.columns([1, 1, 6])
-if nav[0].button("◀ Previous") and st.session_state.idx > 0:
-    st.session_state.idx -= 1
-if nav[1].button("Next ▶") and st.session_state.idx < len(names) - 1:
-    st.session_state.idx += 1
-name = nav[2].selectbox("Image", names, index=st.session_state.idx)
-st.session_state.idx = names.index(name)
+nav[0].button("◀ Previous", on_click=step, args=(-1,))
+nav[1].button("Next ▶", on_click=step, args=(1,))
+name = nav[2].selectbox("Image", names, key="image")
 
 row = counts.loc[counts["image"] == name].iloc[0]
 entry = fixes.setdefault(name, {"removed": [], "added": []})
@@ -74,9 +79,12 @@ with left:
 
 with right:
     # Read the remove list first so the corrected count below is current.
+    remove_key = f"remove-{name}"
+    if remove_key not in st.session_state:
+        st.session_state[remove_key] = [o for o in entry["removed"] if o in ids.index]
     entry["removed"] = st.multiselect(
         "Remove objects (by number on the overlay)",
-        options=ids.index.tolist(), default=entry["removed"])
+        options=ids.index.tolist(), key=remove_key)
     st.metric("Auto count", int(row["count"]))
     st.metric("Corrected count", corr.corrected_count(row["count"], entry))
     if isinstance(row["flags"], str) and row["flags"]:
